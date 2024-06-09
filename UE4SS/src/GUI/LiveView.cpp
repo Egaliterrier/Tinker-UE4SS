@@ -37,6 +37,7 @@
 #include <Unreal/Property/NumericPropertyTypes.hpp>
 #include <Unreal/UClass.hpp>
 #include <Unreal/UEnum.hpp>
+#include <Unreal/UDataTable.hpp>
 #include <Unreal/UFunction.hpp>
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectArray.hpp>
@@ -2299,6 +2300,39 @@ namespace RC::GUI
         ImGui::EndTable(); // Enum Table
     }
 
+    auto LiveView::render_datatable() -> void
+    {
+        ImGui::Separator();
+        const auto currently_selected_object = get_selected_object();
+        if (!currently_selected_object.first || !currently_selected_object.second)
+        {
+            return;
+        }
+
+        auto data_table = Cast<UDataTable>(currently_selected_object.second);
+        auto row_struct = Cast<UScriptStruct>(data_table->GetRowStruct().UnderlyingObjectPointer);
+        auto row_struct_name = row_struct->GetName();
+        const auto& row_map = data_table->GetRowMap();
+
+        for (const auto& row : row_map)
+        {
+            const auto row_name = row.Key.ToString();
+            ImGui::TableNextColumn();
+            if (ImGui_TreeNodeEx(to_string(row_name).c_str(), row.Value, ImGuiTreeNodeFlags_CollapsingHeader))
+            {
+                render_properties(row.Value, row_struct);
+            }
+            if (ImGui::BeginPopupContextItem(to_string(std::format(STR("data-table-context-menu-{}"), row_name)).c_str()))
+            {
+                if (ImGui::MenuItem("Copy"))
+                {
+                    ImGui::SetClipboardText(to_string(row_name).c_str());
+                }
+                ImGui::EndPopup();
+            }
+        }
+    }
+
     auto LiveView::render_bottom_panel() -> void
     {
         const auto currently_selected_object = get_selected_object();
@@ -2311,13 +2345,18 @@ namespace RC::GUI
         {
             render_enum();
         }
+        else if (currently_selected_object.second->IsA<UDataTable>())
+        {
+            render_properties();
+            render_datatable();
+        }
         else
         {
             render_properties();
         }
     }
 
-    auto LiveView::render_properties() -> void
+    auto LiveView::render_properties(void* object_data_override, UStruct* struct_override) -> void
     {
         const auto currently_selected_object = get_selected_object();
         if (!currently_selected_object.first || !currently_selected_object.second)
@@ -2325,8 +2364,8 @@ namespace RC::GUI
             return;
         }
 
-        bool instance_is_struct = currently_selected_object.second->IsA<UStruct>();
-        auto uclass = instance_is_struct ? static_cast<UClass*>(currently_selected_object.second) : currently_selected_object.second->GetClassPrivate();
+        bool instance_is_struct = struct_override ? false : currently_selected_object.second->IsA<UStruct>();
+        auto uclass = instance_is_struct ? static_cast<UClass*>(currently_selected_object.second) : (struct_override ? struct_override : currently_selected_object.second->GetClassPrivate());
 
         UObject* next_object_to_render{};
         FUObjectItem* next_object_item_to_render{};
@@ -2347,7 +2386,7 @@ namespace RC::GUI
         auto render_property_text = [&](UClass* uclass, FProperty* property) {
             // New
             auto next_item_variant =
-                    render_property_value(property, ContainerType::Object, currently_selected_object.second, &last_property, &tried_to_open_nullptr_object);
+                    render_property_value(property, ContainerType::Object, object_data_override ? object_data_override : currently_selected_object.second, &last_property, &tried_to_open_nullptr_object);
             if (auto object_item = std::get_if<UObject*>(&next_item_variant); object_item && *object_item)
             {
                 next_object_to_render = *object_item;
